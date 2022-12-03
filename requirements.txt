@@ -1,0 +1,4 @@
+configparser==5.3.0
+maxminddb==2.2.0
+prometheus-client==0.15.0
+PyYAML==6.0
