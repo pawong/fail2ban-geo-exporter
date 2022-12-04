@@ -56,4 +56,4 @@ I've tested this with a docker-compose on my homelab.
 ## Grafana Dashboard Example
 Example JSON can can be found in `dashboard.json` file.
 
-![grafana dashboard](grafana_db.png")
+![grafana dashboard](grafana_db.png)
