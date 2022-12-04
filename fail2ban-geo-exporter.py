@@ -20,7 +20,11 @@ class MaxmindDB:
         self.reader = maxminddb.open_database(self.db)
 
     def get_ip_location(self, ip):
-        retval = None
+        retval = {
+            "city": "Not found in the city database",
+            "latitude": 0,
+            "longitude": 0,
+        }
         data = self.reader.get(ip)
         if data:
             city_name = ""
@@ -29,11 +33,10 @@ class MaxmindDB:
                 city_name = city["names"].get(self.language, None)
                 if not city_name:
                     city_name = city["names"].get("en", "not found")
-            retval = {
-                "city": city_name,
-                "latitude": data["location"]["latitude"],
-                "longitude": data["location"]["longitude"],
-            }
+            retval["city"] = city_name
+            retval["latitude"] = data["location"]["latitude"]
+            retval["longitude"] = data["location"]["longitude"]
+        # logging.info(f"{ip=}, {retval=}")
         return retval
 
 
@@ -48,7 +51,8 @@ class F2bCollector:
         self.namespace = "fail2ban"
         self.f2b_connection = sqlite3.connect(conf["f2b"]["db"])
         self.f2b_cursor = self.f2b_connection.cursor()
-        self.jails = []
+        self.jails_last_24h = []
+        self.jails_all = []
         self.mmdb = MaxmindDB(conf)
 
     def get_total_banned_ip_count(self):
@@ -58,19 +62,22 @@ class F2bCollector:
         return banned_ip_count[0]
 
     def get_all_jails(self):
-        self.jails = []
+        jails = []
+
         active_jails = self.f2b_cursor.execute(
             "SELECT name FROM jails WHERE enabled = 1"
         ).fetchall()
 
         for name in active_jails:
             jail = Jail(name[0])
-            self.jails.append(jail)
+            jails.append(jail)
 
-    def get_jailed_ips(self):
-        self.get_all_jails()
+        return jails
 
-        for jail in self.jails:
+    def get_last_24h_banned_ips(self):
+        self.jails_last_24h = self.get_all_jails()
+
+        for jail in self.jails_last_24h:
             ips = self.f2b_cursor.execute(
                 "SELECT ip, timeofban FROM bans where jail = ?",
                 [jail.name],
@@ -78,21 +85,51 @@ class F2bCollector:
             for ip in ips:
                 jail.ip_list.append({"ip": ip[0], "timeofban": str(ip[1])})
 
-    def assign_location(self):
-        for jail in self.jails:
+    def get_all_banned_ips(self):
+        self.jails_all = self.get_all_jails()
+
+        for jail in self.jails_all:
+            ips = self.f2b_cursor.execute(
+                "SELECT ip, timeofban FROM bips where jail = ?",
+                [jail.name],
+            ).fetchall()
+            for ip in ips:
+                jail.ip_list.append({"ip": ip[0], "timeofban": str(ip[1])})
+
+    def assign_location(self, jails):
+        for jail in jails:
             for ip in jail.ip_list:
                 ip.update(self.mmdb.get_ip_location(ip["ip"]))
 
-    def all_current_banned_ips_gauge(self):
+    def last_24h_banned_ips_gauge(self):
         extra_labels = ["city", "latitude", "longitude"]
         metric_labels = ["jail", "ip", "timeofban"] + extra_labels
         gauge = GaugeMetricFamily(
-            "fail2ban_all_current_banned_ips",
-            "All currently banned IPs with location data.",
+            "fail2ban_last_24h_banned_ips",
+            "Banned IPs for last 24h with location data.",
             labels=metric_labels,
         )
 
-        for jail in self.jails:
+        for jail in self.jails_last_24h:
+            for entry in jail.ip_list:
+                values = [jail.name, entry["ip"], entry["timeofban"]] + [
+                    str(entry[x]) for x in extra_labels
+                ]
+                gauge.add_metric(values, 1)
+
+        logging.info(f"last_24h: {gauge}")
+        return gauge
+
+    def all_banned_ips_gauge(self):
+        extra_labels = ["city", "latitude", "longitude"]
+        metric_labels = ["jail", "ip", "timeofban"] + extra_labels
+        gauge = GaugeMetricFamily(
+            "fail2ban_all_banned_ips",
+            "All banned IPs with location data.",
+            labels=metric_labels,
+        )
+
+        for jail in self.jails_all:
             for entry in jail.ip_list:
                 values = [jail.name, entry["ip"], entry["timeofban"]] + [
                     str(entry[x]) for x in extra_labels
@@ -105,11 +142,11 @@ class F2bCollector:
     def total_banned_ips_by_jail_gauge(self):
         gauge = GaugeMetricFamily(
             "fail2ban_total_banned_ips_by_jail",
-            "Number of currently banned IPs by jail",
+            "Number of last_24hly banned IPs by jail",
             labels=["jail"],
         )
 
-        for jail in self.jails:
+        for jail in self.jails_last_24h:
             gauge.add_metric([jail.name], len(jail.ip_list))
 
         logging.info(f"summary: {gauge}")
@@ -118,7 +155,7 @@ class F2bCollector:
     def total_count_banned_ips_gauge(self):
         gauge = GaugeMetricFamily(
             "fail2ban_total_count_banned_ips",
-            "Number of currently banned IPs",
+            "Total number of banned IPs",
             labels=[],
         )
         gauge.add_metric(labels=[], value=self.get_total_banned_ip_count())
@@ -128,12 +165,16 @@ class F2bCollector:
 
     def collect(self):
         logging.info("Start collect...")
-        self.get_jailed_ips()
-        self.assign_location()
+        self.get_last_24h_banned_ips()
+        self.assign_location(self.jails_last_24h)
+
+        self.get_all_banned_ips()
+        self.assign_location(self.jails_all)
 
         yield self.total_banned_ips_by_jail_gauge()
         yield self.total_count_banned_ips_gauge()
-        yield self.all_current_banned_ips_gauge()
+        yield self.last_24h_banned_ips_gauge()
+        yield self.all_banned_ips_gauge()
 
 
 if __name__ == "__main__":
