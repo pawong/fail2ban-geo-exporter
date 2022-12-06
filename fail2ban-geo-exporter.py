@@ -51,7 +51,7 @@ class F2bCollector:
         self.namespace = "fail2ban"
         self.f2b_connection = sqlite3.connect(conf["f2b"]["db"])
         self.f2b_cursor = self.f2b_connection.cursor()
-        self.jails_last_24h = []
+        self.jails_last_week = []
         self.jails_all = []
         self.mmdb = MaxmindDB(conf)
 
@@ -74,12 +74,12 @@ class F2bCollector:
 
         return jails
 
-    def get_last_24h_banned_ips(self):
-        self.jails_last_24h = self.get_all_jails()
+    def get_last_week_banned_ips(self):
+        self.jails_last_week = self.get_all_jails()
 
-        for jail in self.jails_last_24h:
+        for jail in self.jails_last_week:
             ips = self.f2b_cursor.execute(
-                "SELECT ip, timeofban FROM bans where jail = ?",
+                "SELECT ip, timeofban FROM bips where jail = ? and timeofban > (strftime('%s', 'now') - 24*60*60*7)",
                 [jail.name],
             ).fetchall()
             for ip in ips:
@@ -101,23 +101,23 @@ class F2bCollector:
             for ip in jail.ip_list:
                 ip.update(self.mmdb.get_ip_location(ip["ip"]))
 
-    def last_24h_banned_ips_gauge(self):
+    def last_week_banned_ips_gauge(self):
         extra_labels = ["city", "latitude", "longitude"]
         metric_labels = ["jail", "ip", "timeofban"] + extra_labels
         gauge = GaugeMetricFamily(
-            "fail2ban_last_24h_banned_ips",
-            "Banned IPs for last 24h with location data.",
+            "fail2ban_last_week_banned_ips",
+            "Banned IPs for last week with location data.",
             labels=metric_labels,
         )
 
-        for jail in self.jails_last_24h:
+        for jail in self.jails_last_week:
             for entry in jail.ip_list:
                 values = [jail.name, entry["ip"], entry["timeofban"]] + [
                     str(entry[x]) for x in extra_labels
                 ]
                 gauge.add_metric(values, 1)
 
-        logging.info(f"last_24h: {gauge}")
+        logging.info(f"last_week: {gauge}")
         return gauge
 
     def all_banned_ips_gauge(self):
@@ -136,17 +136,17 @@ class F2bCollector:
                 ]
                 gauge.add_metric(values, 1)
 
-        logging.info(f"all: {gauge}")
+        # logging.info(f"all: {gauge}")
         return gauge
 
     def total_banned_ips_by_jail_gauge(self):
         gauge = GaugeMetricFamily(
             "fail2ban_total_banned_ips_by_jail",
-            "Number of last_24hly banned IPs by jail",
+            "Number of banned IPs in the last week by jail",
             labels=["jail"],
         )
 
-        for jail in self.jails_last_24h:
+        for jail in self.jails_last_week:
             gauge.add_metric([jail.name], len(jail.ip_list))
 
         logging.info(f"summary: {gauge}")
@@ -165,15 +165,15 @@ class F2bCollector:
 
     def collect(self):
         logging.info("Start collect...")
-        self.get_last_24h_banned_ips()
-        self.assign_location(self.jails_last_24h)
+        self.get_last_week_banned_ips()
+        self.assign_location(self.jails_last_week)
 
         self.get_all_banned_ips()
         self.assign_location(self.jails_all)
 
         yield self.total_banned_ips_by_jail_gauge()
         yield self.total_count_banned_ips_gauge()
-        yield self.last_24h_banned_ips_gauge()
+        yield self.last_week_banned_ips_gauge()
         yield self.all_banned_ips_gauge()
 
 

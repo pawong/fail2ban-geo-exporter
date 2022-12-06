@@ -82,7 +82,7 @@
                         "type": "prometheus",
                         "uid": "PBFA97CFB590B2093"
                     },
-                    "expr": "count (fail2ban_last_24h_banned_ips{jail=\"$jail\"}) by (jail)",
+                    "expr": "count (fail2ban_last_week_banned_ips{jail=\"$jail\"}) by (jail)",
                     "format": "time_series",
                     "instant": true,
                     "interval": "",
@@ -155,7 +155,7 @@
                         "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "builder",
-                    "expr": "sum(fail2ban_last_24h_banned_ips) by (latitude, longitude, city)",
+                    "expr": "sum(fail2ban_last_week_banned_ips) by (latitude, longitude, city)",
                     "format": "table",
                     "instant": true,
                     "interval": "",
@@ -164,7 +164,7 @@
                 }
             ],
             "thresholds": "5,10,20",
-            "title": "Banned IP locations for the Last 24h",
+            "title": "Banned IP Locations for the Last Week",
             "transformations": [],
             "type": "grafana-worldmap-panel",
             "unitPlural": "IPs",
@@ -190,14 +190,14 @@
                     "type": "prometheus",
                     "uid": "PBFA97CFB590B2093"
                 },
-                "definition": "fail2ban_last_24h_banned_ips",
+                "definition": "fail2ban_last_week_banned_ips",
                 "hide": 2,
                 "includeAll": true,
                 "multi": false,
                 "name": "jail",
                 "options": [],
                 "query": {
-                    "query": "fail2ban_last_24h_banned_ips",
+                    "query": "fail2ban_last_week_banned_ips",
                     "refId": "Prometheus-jail-Variable-Query"
                 },
                 "refresh": 2,
@@ -229,7 +229,7 @@
         ]
     },
     "timezone": "",
-    "title": "Fail2ban banned IPs by locations",
+    "title": "Fail2ban Banned IPs by Locations",
     "uid": "pGlJmeRGk",
     "version": 7,
     "weekStart": ""
